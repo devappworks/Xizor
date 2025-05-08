@@ -1,0 +1,43 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pkl
+*.egg-info/
+*.log
+
+# Virtual environments
+venv/
+.env/        # ako koristiš .env folder
+.env         # .env fajl sa tokenima i šiframa
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# mypy / pylint / pyright / pytest
+.mypy_cache/
+.pytest_cache/
+.pyright/
+
+# IDE config files
+.vscode/
+.idea/
+
+# === Docker ===
+*.pid
+*.tar
+docker-compose.override.yml
+docker-compose*.yml.local
+
+# Docker build folders
+build/
+dist/
+*.bak
+*.tmp
+
+# === OS ===
+.DS_Store
+Thumbs.db
+.env
