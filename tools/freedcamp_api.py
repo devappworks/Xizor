@@ -1,151 +1,128 @@
+# tools/freedcamp_api.py
 import os
-import requests
-import logging
+import time
+import hmac
+import hashlib
 import json
-from dotenv import load_dotenv
-from agents import function_tool
-from datetime import datetime
+import logging
+import requests
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 
-# Set up logging
+load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+logging.getLogger("openai").setLevel(logging.DEBUG)
+logging.getLogger("httpx").setLevel(logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
 
-# Freedcamp API credentials
-FREEDCAMP_API_KEY = os.getenv("FREEDCAMP_API_KEY")
-FREEDCAMP_API_SECRET = os.getenv("FREEDCAMP_API_SECRET")
-FREEDCAMP_PROJECT_ID = os.getenv("FREEDCAMP_PROJECT_ID")
+API_KEY = os.getenv("FREEDCAMP_API_KEY")
+API_SECRET = os.getenv("FREEDCAMP_API_SECRET")
+PROJECT_ID = os.getenv("FREEDCAMP_PROJECT_ID")
+TASKGROUP_ID = os.getenv("FREEDCAMP_TASK_GROUP_ID")
 
 BASE_URL = "https://freedcamp.com/api/v1"
 
-def _get_auth_params():
-    """Return the authentication parameters for Freedcamp API calls."""
-    return {
-        "api_key": FREEDCAMP_API_KEY,
-        "api_secret": FREEDCAMP_API_SECRET,
-    }
-
-def _convert_priority(internal_priority: str) -> int:
-    """Convert internal priority format (P0, P1, P2) to Freedcamp priority (1-3)."""
-    priority_map = {
-        "P0": 1,  # High priority in Freedcamp
-        "P1": 2,  # Medium priority in Freedcamp
-        "P2": 3,  # Low priority in Freedcamp
-    }
-    return priority_map.get(internal_priority, 2)  # Default to medium if not recognized
-
-def _format_due_date(due_date: Optional[str]) -> Optional[str]:
-    """Format the due date for Freedcamp API (YYYY-MM-DD)."""
-    if not due_date:
-        return None
-    
-    # If already in YYYY-MM-DD format, return as is
-    if len(due_date) == 10 and due_date[4] == '-' and due_date[7] == '-':
-        return due_date
-    
-    # Otherwise try to parse and format
-    try:
-        # Try various formats
-        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y'):
-            try:
-                date_obj = datetime.strptime(due_date, fmt)
-                return date_obj.strftime('%Y-%m-%d')
-            except ValueError:
-                continue
+def _auth() -> Dict[str, str]:
+    """Generates authentication parameters for Freedcamp API."""
+    if not API_KEY or not API_SECRET:
+        logger.error("API_KEY or API_SECRET not configured.")
+        raise ValueError("API_KEY or API_SECRET not configured for _auth.")
         
-        # If we couldn't parse, log warning and return None
-        logger.warning(f"Could not parse due date: {due_date}")
-        return None
-    except Exception as e:
-        logger.error(f"Error formatting due date: {e}")
-        return None
+    ts = str(int(time.time()))
+    signature = hmac.new(
+        API_SECRET.encode('utf-8'), # Ensure encoding for hmac
+        f"{API_KEY}{ts}".encode('utf-8'), # Ensure encoding for hmac
+        hashlib.sha1,
+    ).hexdigest()
+    return {"api_key": API_KEY, "timestamp": ts, "hash": signature}
 
-@function_tool
-def create_freedcamp_task(title: str, description: str, assignee: str, 
-                        priority: str, due_date: Optional[str] = None) -> Dict[str, Any]:
+PRIO_MAP = {"P0": 3, "P1": 2, "P2": 1}
+
+# Not decorated with @function_tool as per Prompt2.md
+def create_freedcamp_task(
+    title: str,
+    description: str,
+    assignee_id: int = 1788822,
+    priority: str = "P2",
+    due_date: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Create a new task in Freedcamp.
-    
-    Args:
-        title: Task title
-        description: Task description
-        assignee: Name of the assignee (will be used as is)
-        priority: Priority level (P0, P1, P2)
-        due_date: Optional due date in YYYY-MM-DD format
-        
-    Returns:
-        Dict containing the response from Freedcamp API
+    Create a task in Freedcamp.
+    Uses multipart/form-data with a 'data' field containing the JSON payload.
+    Returns a dictionary with {success, task_id, task_url, response|error}.
     """
-    logger.info(f"Creating Freedcamp task: {title}")
-    
-    # Check if API credentials are set
-    if not FREEDCAMP_API_KEY or not FREEDCAMP_API_SECRET or not FREEDCAMP_PROJECT_ID:
-        error_msg = "Freedcamp API credentials or project ID not set"
-        logger.error(error_msg)
-        return {"success": False, "error": error_msg}
-    
-    # Prepare API endpoint and params
-    endpoint = f"{BASE_URL}/projects/{FREEDCAMP_PROJECT_ID}/tasks"
-    params = _get_auth_params()
-    
-    # Convert the priority
-    fc_priority = _convert_priority(priority)
-    
-    # Format the due date
-    formatted_due_date = _format_due_date(due_date)
-    
-    # Prepare the payload
-    payload = {
-        "project_id": FREEDCAMP_PROJECT_ID,
+    if not all([API_KEY, API_SECRET, PROJECT_ID, TASKGROUP_ID]):
+        logger.error("Missing Freedcamp API credentials or project/task group IDs in .env.")
+        return {"success": False, "error": "Missing API credentials or project/task group IDs"}
+
+    payload_dict = {
+        "project_id": PROJECT_ID,
+        "task_group_id": TASKGROUP_ID,
         "title": title,
         "description": description,
-        "priority": fc_priority,
-        "assignee": assignee,  # Note: This might need adjustment based on how Freedcamp handles assignees
+        "assigned_to_id": 1788822,
+        "priority": 3, # Default to 2 (P1 equivalent in map) if priority string is invalid
     }
-    
-    # Add due date if provided
-    if formatted_due_date:
-        payload["due_date"] = formatted_due_date
-    
+    if due_date:  # Expected format YYYY-MM-DD
+        payload_dict["due_date"] = due_date
+
+    logger.debug(f"[FC-REQ] Payload for Freedcamp: {json.dumps(payload_dict, indent=2)}")
+
     try:
-        # Make the API request
-        response = requests.post(endpoint, params=params, json=payload)
-        response.raise_for_status()  # Raise exception for non-2xx responses
+        auth_params = _auth() # Can raise ValueError if keys are missing
         
-        data = response.json()
-        logger.debug("[FC-RAW]\n" + json.dumps(data, indent=2))
+        # Freedcamp API expects the JSON payload as a string in a 'data' form field.
+        # Using 'files' parameter with None for filename sends multipart/form-data.
+        form_data_payload = {'data': (None, json.dumps(payload_dict))}
         
-        task_id = data.get('id')
-        logger.info(f"Task created successfully in Freedcamp. Task ID: {task_id}")
+        res = requests.post(
+            f"{BASE_URL}/tasks",
+            params=auth_params,
+            files=form_data_payload,
+            verify=False  # <<< PRIVREMENO ZA TESTIRANJE SSL PROBLEMA
+        )
+        res.raise_for_status()  # Raises HTTPError for 4xx/5xx responses
         
-        # Since we're using /projects/{project_id}/tasks endpoint, we know the project_id
-        project_id = FREEDCAMP_PROJECT_ID
-        
-        logger.debug(f"[DEBUG] project_id: {project_id}")
-        
-        task_url = f"https://freedcamp.com/view/{project_id}/tasks/{task_id}"
-        logger.debug(f"[DEBUG] task_url : {task_url}")
-        
-        return {
-            "success": True,
-            "task_id": task_id,
-            "task_url": task_url,
-            "response": data
-        }
-    
+        response_json = res.json()
+        # Successful task creation usually has the task details under a "data" key in Freedcamp's response
+        task_data = response_json.get("data", {}) 
+        task_id = task_data.get("id")
+        task_url = task_data.get("url")  # API returns full or relative link
+
+        # prepend host if link is relative
+        if task_url and task_url.startswith("/"):
+            task_url = f"https://freedcamp.com{task_url}"
+
+        if task_id and task_url:
+            logger.info(f"Successfully created Freedcamp task {task_id}. URL: {task_url}")
+            return {
+                "success": True,
+                "task_id": task_id,
+                "task_url": task_url,
+                "response": task_data,
+            }
+        else:
+            # Freedcamp's API might return 200 OK but with an error object in JSON if something went wrong with the data itself
+            # Or if 'id' is missing, it's an issue.
+            internal_error_msg = response_json.get("error", {}).get("message", "No task ID in response and no specific error message.")
+            logger.error(f"Freedcamp task creation API call successful (HTTP {res.status_code}) but no 'id' found in response 'data' field or error reported. Response: {res.text}. Internal error: {internal_error_msg}")
+            return {"success": False, "error": f"Task creation reported success by API (HTTP {res.status_code}) but task details/ID are missing. Freedcamp msg: {internal_error_msg}", "response": response_json}
+
     except requests.exceptions.HTTPError as http_err:
-        error_msg = f"HTTP error occurred: {http_err}"
-        logger.error(error_msg)
+        error_text = http_err.response.text if http_err.response else "No response body"
+        status_code = http_err.response.status_code if http_err.response else "N/A"
+        logger.error(f"Freedcamp API HTTP error: {http_err}. Status: {status_code}. Response: {error_text}")
+        # Attempt to parse JSON from error response, as Freedcamp often returns JSON errors
         try:
-            response_data = response.json()
-            logger.error(f"API response: {response_data}")
-            return {"success": False, "error": error_msg, "response": response_data}
-        except:
-            return {"success": False, "error": error_msg, "status_code": response.status_code}
-    
-    except Exception as err:
-        error_msg = f"Error creating task in Freedcamp: {err}"
-        logger.error(error_msg)
-        return {"success": False, "error": error_msg} 
+            error_response_json = http_err.response.json()
+            error_detail = error_response_json.get("error", {}).get("message", error_text)
+        except json.JSONDecodeError:
+            error_detail = error_text
+        return {"success": False, "error": str(http_err), "response_detail": error_detail, "status_code": status_code}
+    except ValueError as ve: # Catch ValueError from _auth
+        logger.error(f"ValueError during Freedcamp task creation (likely API key issue): {ve}")
+        return {"success": False, "error": str(ve)}
+    except Exception as e:
+        logger.exception("An unexpected error occurred while creating Freedcamp task.") # Logs full stack trace
+        return {"success": False, "error": f"An unexpected error occurred: {str(e)}"} 

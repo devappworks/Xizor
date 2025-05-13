@@ -71,17 +71,21 @@ async def slack_events(
             try:
                 # Run the OrchestratorAgent to process the task with context
                 #logger.info("Running OrchestratorAgent...")
-                run_result = await Runner.run(OrchestratorAgent(), text, context=context)
+                #run_result = await Runner.run(OrchestratorAgent(), text, context=context)
+                #run_result = await OrchestratorAgent().run(text, context)
+                result: OrchestratorResponse = await OrchestratorAgent().run(text, context)
+
+
                 #logger.info(f"OrchestratorAgent result: {run_result.final_output}")
                 
                 # Try to validate the response
-                try:
-                    result = OrchestratorResponse.model_validate(run_result.final_output)
+                #try:
+                    #result = OrchestratorResponse.model_validate(run_result.final_output)
                     #logger.info(f"Validated response: {result}")
-                except Exception as validation_error:
-                    logger.error(f"Validation error: {validation_error}")
-                    logger.error(f"Invalid response structure: {run_result.final_output}")
-                    raise validation_error
+                #except Exception as validation_error:
+                    #logger.error(f"Validation error: {validation_error}")
+                    #logger.error(f"Invalid response structure: {run_result.final_output}")
+                    #raise validation_error
                 
                 # Format the response message based on status
                 if result.status == "success" and result.task:
