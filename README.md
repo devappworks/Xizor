@@ -1,17 +1,40 @@
-# AgenticPM
+# AI PM Agent
 
-An AI-powered Project Management System that helps teams organize and manage their projects effectively.
+A Slack-native AI Project Manager that turns meeting summaries into structured tasks, logs them to Google Sheets, and notifies assignees.
 
-## Project Structure
+## Environment Setup
 
-- `/docs` - Project documentation and guides
-- `/tasks` - Task definitions and tracking
-- `/sprints` - Sprint planning and retrospectives
-- `/context` - Project context and background information
+1. **Python Version**
+   - Use Python 3.11
 
-## Getting Started
+2. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd ai-pm-agent
+   ```
 
-1. Check the `/docs` folder for detailed documentation
-2. Review project context in `/context`
-3. See current tasks in `/tasks`
-4. Track sprint progress in `/sprints` 
+3. **Create a virtual environment**
+   ```bash
+   python3.11 -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
+
+4. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. **Set up environment variables**
+   - Copy `.env.example` to `.env` and fill in your secrets:
+     - `OPENAI_API_KEY`
+     - `SLACK_BOT_TOKEN`
+     - `SLACK_SIGNING_SECRET`
+     - `GOOGLE_SERVICE_JSON`
+     - `SHEET_ID`
+
+6. **Run the app**
+   - (Instructions for running will be added as the app is built)
+
+---
+
+See `/docs/ai_pm_agent_plan.md` for architecture and roadmap. 
